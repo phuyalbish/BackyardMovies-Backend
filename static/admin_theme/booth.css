@@ -1,0 +1,39 @@
+/* Projection Booth: Django admin dressed as the backyard at night. */
+:root, html[data-theme="dark"], html[data-theme="light"] {
+  --primary: #0d1424;
+  --secondary: #1c2740;
+  --accent: #f2b35b;
+  --primary-fg: #f3e9d2;
+  --header-color: #f3e9d2;
+  --header-branding-color: #f3e9d2;
+  --header-bg: #0b111f;
+  --header-link-color: #f2b35b;
+  --breadcrumbs-bg: #141d31;
+  --breadcrumbs-link-fg: #f2b35b;
+  --breadcrumbs-fg: #c9c0aa;
+  --link-fg: #e8572a;
+  --link-hover-color: #b8401b;
+  --link-selected-fg: #e8572a;
+  --button-bg: #e8572a;
+  --button-hover-bg: #c94518;
+  --default-button-bg: #0d1424;
+  --default-button-hover-bg: #26324f;
+  --selected-row: #fbefd6;
+  --message-success-bg: #e6f1e2;
+  --font-family-primary: "Instrument Sans", system-ui, sans-serif;
+}
+html[data-theme="dark"] {
+  --body-bg: #0e1526; --body-fg: #e9e1cc; --body-quiet-color: #a39b88; --darkened-bg: #131c30;
+  --selected-bg: #1d2a46; --selected-row: #2a2417; --hairline-color: #24304a; --border-color: #2c3957;
+  --link-fg: #f2905b;
+}
+#header { border-bottom: 3px solid #e8572a; background-image: radial-gradient(circle at 92% 0, rgba(242,179,91,.25), transparent 40%); }
+#site-name a { display: flex; align-items: baseline; gap: .4em; }
+.bym-b { font-family: "Permanent Marker", cursive; color: #e8572a; font-size: 1.6rem; transform: rotate(-3deg); display: inline-block; }
+.bym-m { font-family: "Permanent Marker", cursive; color: #3aa0c9; font-size: 1.3rem; }
+#site-name small { font-family: "Anton", sans-serif; letter-spacing: .25em; text-transform: uppercase; color: #f2b35b; font-size: .7rem; margin-left: .6rem; }
+.bym-site { color: #f2b35b; margin-right: 1rem; }
+h1, .module h2, .module caption { font-family: "Anton", sans-serif; letter-spacing: .04em; font-weight: 400; }
+.module h2, .module caption { background: #0d1424; color: #f3e9d2; text-transform: uppercase; }
+.button, input[type=submit], input[type=button], .submit-row input, a.button { border-radius: 2px; letter-spacing: .03em; }
+#content h1 { font-size: 2rem; }
