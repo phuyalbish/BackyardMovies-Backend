@@ -1,0 +1,4 @@
+---
+deployment:
+  tasks:
+    - /bin/bash $HOME/repositories/BackyardMovies-Backend/deploy.sh

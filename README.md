@@ -23,6 +23,33 @@ The admin is the **Projection Booth** at `http://127.0.0.1:8000/booth/`.
 
 Demo accounts created by `seed --demo` all use the password `backyard-demo-1` (`aarati`, `bibek`, `sushma`, `rohan`, `pema`). To start clean before going live, delete `db.sqlite3`, then run `migrate` and `seed` without `--demo`.
 
+## Deploy on cPanel
+
+The API runs on a subdomain such as `api.yourdomain.com`; the website (the frontend repo) sits on `yourdomain.com`.
+
+1. **Subdomain.** cPanel > Domains: create `api.yourdomain.com`. Make sure AutoSSL has given it a certificate.
+2. **Clone.** cPanel > Git Version Control > Create: clone this repo to `repositories/BackyardMovies-Backend` (the default path).
+3. **Python app.** cPanel > Setup Python App > Create application:
+   - Python version **3.12 or newer** (Django 6 needs it)
+   - Application root: `repositories/BackyardMovies-Backend`
+   - Application URL: `api.yourdomain.com`
+   - Application startup file: `passenger_wsgi.py`, entry point: `application`
+4. **Settings.** In File Manager, copy `.env.example` to `.env` in that folder and fill it in: a new `DJANGO_SECRET_KEY`, your domains, and `TMDB_TOKEN`.
+5. **First deploy.** cPanel > Terminal (or SSH):
+   ```bash
+   cd ~/repositories/BackyardMovies-Backend
+   bash deploy.sh                      # installs packages, migrates, collects static, restarts
+   source ~/virtualenv/repositories/BackyardMovies-Backend/*/bin/activate
+   python manage.py seed               # 26 films + Night One (Lion)
+   python manage.py tmdb_sync          # real posters and details
+   python manage.py createsuperuser    # your login for the booth
+   ```
+6. **Updates.** Push to GitHub, then cPanel > Git Version Control > Manage > Pull or Deploy > "Update from Remote" and "Deploy HEAD Commit". `.cpanel.yml` runs `deploy.sh`.
+
+Check it: `https://api.yourdomain.com/api/site/` returns JSON and `https://api.yourdomain.com/booth/` shows the Projection Booth login.
+
+Data lives in `db.sqlite3` and uploads in `media/` inside the app folder; neither is in git, so back them up (cPanel > Backup, or download them). To move your local data across, upload both after step 5.
+
 ## What's on the site
 
 | Page | Route | What it does |
@@ -54,9 +81,3 @@ Films with neither an uploaded poster nor a TMDB poster get a generated, screen-
 4. On the night, tick *attended* on reservations. Then run **Mark as screened**, which writes a diary entry for everyone marked attended.
 5. **Comments**: tick *hidden* to take a comment down without deleting it.
 6. **Site settings**: edit the venue, WhatsApp, phone and Instagram handle.
-
-## Production notes
-
-- Set the variables in `.env.example` (secret key, `DJANGO_DEBUG=0`, hosts, CORS origins) and move to Postgres.
-- Run `collectstatic`, and serve `media/` from the web server or object storage.
-- Build the frontend with `npm run build`, and set `VITE_API_URL` if the API lives on a different origin.
