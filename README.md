@@ -28,18 +28,18 @@ Demo accounts created by `seed --demo` all use the password `backyard-demo-1` (`
 The API runs on a subdomain such as `api.yourdomain.com`; the website (the frontend repo) sits on `yourdomain.com`.
 
 1. **Subdomain.** cPanel > Domains: create `api.yourdomain.com`. Make sure AutoSSL has given it a certificate.
-2. **Clone.** cPanel > Git Version Control > Create: clone this repo to `repositories/BackyardMovies-Backend` (the default path).
+2. **Clone.** cPanel > Git Version Control > Create: clone this repo into the folder you will use as the app root, e.g. `backyardapi`.
 3. **Python app.** cPanel > Setup Python App > Create application:
    - Python version **3.12 or newer** (Django 6 needs it)
-   - Application root: `repositories/BackyardMovies-Backend`
+   - Application root: the same folder, e.g. `backyardapi`
    - Application URL: `api.yourdomain.com`
    - Application startup file: `passenger_wsgi.py`, entry point: `application`
 4. **Settings.** In File Manager, copy `.env.example` to `.env` in that folder and fill it in: a new `DJANGO_SECRET_KEY`, your domains, and `TMDB_TOKEN`.
 5. **First deploy.** cPanel > Terminal (or SSH):
    ```bash
-   cd ~/repositories/BackyardMovies-Backend
+   cd ~/backyardapi
    bash deploy.sh                      # installs packages, migrates, collects static, restarts
-   source ~/virtualenv/repositories/BackyardMovies-Backend/*/bin/activate
+   source ~/virtualenv/backyardapi/*/bin/activate
    python manage.py seed               # 26 films + Night One (Lion)
    python manage.py tmdb_sync          # real posters and details
    python manage.py createsuperuser    # your login for the booth
