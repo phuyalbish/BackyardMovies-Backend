@@ -34,10 +34,16 @@ jobs:
       - name: SSH login attempt (verbose, 20 s limit)
         env:
           SERVER_IP: ${{ secrets.SERVER_IP }}
+          SSH_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
         run: |
           mkdir -p ~/.ssh
-          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_ed25519
+          printf '%s\n' "$SSH_KEY" | tr -d '\r' > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
-          ssh-keygen -y -f ~/.ssh/id_ed25519 >/dev/null && echo "Private key format: OK" || echo "Private key format: INVALID (check the SSH_PRIVATE_KEY secret)"
-          ssh -v -o BatchMode=yes -o ConnectTimeout=20 -o StrictHostKeyChecking=accept-new \
+          if ssh-keygen -y -f ~/.ssh/id_ed25519 > /tmp/key.pub 2>/dev/null; then
+            echo "Private key format: OK. Fingerprint (compare with ssh-keygen -lf <your private key file>):"
+            ssh-keygen -lf /tmp/key.pub
+          else
+            echo "Private key format: INVALID (not a private key, damaged, or has a passphrase)"
+          fi
+          ssh -v -o BatchMode=yes -o IdentitiesOnly=yes -o PreferredAuthentications=publickey -o ConnectTimeout=20 -o StrictHostKeyChecking=accept-new \
             -i ~/.ssh/id_ed25519 ${{ secrets.SSH_USERNAME }}@"$SERVER_IP" 'echo "Logged in as $(whoami) on $(hostname)"' 2>&1 | grep -E "Connecting|Connection|connect to|Authenticated|Permission denied|Logged in|Server accepts|Offering" || true

@@ -15,12 +15,40 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Set up SSH
+        env:
+          SSH_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
         run: |
-          mkdir -p ~/.ssh
-          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_ed25519
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          # Strip Windows line endings and make sure the key ends with a newline; both break OpenSSH.
+          printf '%s\n' "$SSH_KEY" | tr -d '\r' > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
+          if ! grep -q -- '-----BEGIN .*PRIVATE KEY-----' ~/.ssh/id_ed25519; then
+            echo "::error::SSH_PRIVATE_KEY is not a private key. Paste the whole private key file, from -----BEGIN ... PRIVATE KEY----- to -----END ... PRIVATE KEY-----, not the .pub file."
+            exit 1
+          fi
+          if ! ssh-keygen -y -f ~/.ssh/id_ed25519 > /tmp/key.pub 2>/dev/null; then
+            echo "::error::SSH_PRIVATE_KEY could not be read (damaged paste, or it has a passphrase)."
+            exit 1
+          fi
+          echo "Key fingerprint (compare with: ssh-keygen -lf <your private key file>):"
+          ssh-keygen -lf /tmp/key.pub
           ssh-keyscan -H "${{ secrets.SERVER_IP }}" >> ~/.ssh/known_hosts 2>/dev/null
-          ssh -i ~/.ssh/id_ed25519 ${{ secrets.SSH_USERNAME }}@${{ secrets.SERVER_IP }} exit
+          cat >> ~/.ssh/config <<CFG
+          Host deploy
+            HostName ${{ secrets.SERVER_IP }}
+            User ${{ secrets.SSH_USERNAME }}
+            IdentityFile ~/.ssh/id_ed25519
+            IdentitiesOnly yes
+            PreferredAuthentications publickey
+            BatchMode yes
+            ConnectTimeout 30
+            ServerAliveInterval 30
+          CFG
+          if ! ssh deploy exit; then
+            echo "::error::The server refused this key. Its fingerprint is printed above; make sure the matching public key is in ~/.ssh/authorized_keys on the server (cPanel > SSH Access > Manage SSH Keys > Authorize)."
+            exit 1
+          fi
+          echo "SSH login OK"
 
       # The server has no rsync, so the code is packed with tar, streamed over SSH and unpacked
       # over the app folder. Nothing on the server is deleted: .env, the database, uploads, the
@@ -44,7 +72,7 @@ jobs:
             --exclude='stderr.log' \
             --exclude='.DS_Store' \
             .
-          ssh -i ~/.ssh/id_ed25519 ${{ secrets.SSH_USERNAME }}@${{ secrets.SERVER_IP }} \
+          ssh deploy \
             "mkdir -p ~/$APP_DIR && tar -xzf - -C ~/$APP_DIR" < "$RUNNER_TEMP/backend.tgz"
 
       # Only the TMDB_TOKEN line of the server's .env is managed here; every other line is left as it is.
@@ -54,7 +82,7 @@ jobs:
           TMDB_TOKEN: ${{ secrets.TMDB_TOKEN }}
         run: |
           test -n "$TMDB_TOKEN" || { echo "The TMDB_TOKEN secret is empty"; exit 1; }
-          printf '%s\n' "$TMDB_TOKEN" | ssh -i ~/.ssh/id_ed25519 ${{ secrets.SSH_USERNAME }}@${{ secrets.SERVER_IP }} "
+          printf '%s\n' "$TMDB_TOKEN" | ssh deploy "
             set -e
             read -r T
             F=\$HOME/$APP_DIR/.env
@@ -70,7 +98,7 @@ jobs:
       # deploy.sh: checks the Python version, installs packages, migrates, collects static files, restarts.
       - name: Install, migrate and restart
         run: |
-          ssh -i ~/.ssh/id_ed25519 ${{ secrets.SSH_USERNAME }}@${{ secrets.SERVER_IP }} \
+          ssh deploy \
             "bash ~/$APP_DIR/deploy.sh"
 
       - name: Check the API answers
