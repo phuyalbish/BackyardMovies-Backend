@@ -20,12 +20,22 @@ if ! python -c 'import sys; sys.exit(0 if sys.version_info >= (3, 12) else 1)'; 
   exit 1
 fi
 
-if [[ ! -f .env ]]; then
-  echo "Missing $APP_DIR/.env. Copy .env.example to .env and fill it in (see README)." >&2
+# .env must hold the production settings, not just the TMDB token the workflow writes.
+missing=()
+for key in DJANGO_SECRET_KEY DJANGO_DEBUG DJANGO_ALLOWED_HOSTS CSRF_TRUSTED_ORIGINS CORS_ORIGINS; do
+  grep -q "^$key=." .env 2>/dev/null || missing+=("$key")
+done
+if (( ${#missing[@]} )); then
+  echo "$APP_DIR/.env is missing: ${missing[*]}. See the README's 'Deploy on cPanel' section for the lines to add." >&2
+  exit 1
+fi
+if ! grep -q '^DJANGO_DEBUG=0$' .env; then
+  echo "$APP_DIR/.env must have DJANGO_DEBUG=0 on the server." >&2
   exit 1
 fi
 
-trap 'echo "--- last lines of stderr.log ---" >&2; tail -n 25 stderr.log >&2 2>/dev/null || true' ERR
+LOG_START=$(wc -l < stderr.log 2>/dev/null || echo 0)
+trap 'echo "--- stderr.log during this deploy ---" >&2; tail -n +"$((LOG_START + 1))" stderr.log 2>/dev/null | tail -n 25 >&2 || true' ERR
 
 pip install -q --upgrade pip
 pip install -q -r requirements.txt
