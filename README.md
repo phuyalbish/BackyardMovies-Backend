@@ -25,30 +25,36 @@ Demo accounts created by `seed --demo` all use the password `backyard-demo-1` (`
 
 ## Deploy on cPanel
 
-The API runs on a subdomain such as `api.yourdomain.com`; the website (the frontend repo) sits on `yourdomain.com`.
+Deploys run from GitHub: Actions > "Deploy backend to cPanel" > Run workflow. It uploads the code over SSH to the app folder, writes `.env` from the repository secrets, then runs `deploy.sh` (Python check, `pip install`, `migrate`, `collectstatic`, restart) and checks that `/api/site/` answers.
 
-1. **Subdomain.** cPanel > Domains: create `api.yourdomain.com`. Make sure AutoSSL has given it a certificate.
-2. **Clone.** cPanel > Git Version Control > Create: clone this repo into the folder you will use as the app root, e.g. `backyardapi`.
-3. **Python app.** cPanel > Setup Python App > Create application:
-   - Python version **3.12 or newer** (Django 6 needs it)
-   - Application root: the same folder, e.g. `backyardapi`
-   - Application URL: `api.yourdomain.com`
-   - Application startup file: `passenger_wsgi.py`, entry point: `application`
-4. **Settings.** In File Manager, copy `.env.example` to `.env` in that folder and fill it in: a new `DJANGO_SECRET_KEY`, your domains, and `TMDB_TOKEN`.
-5. **First deploy.** cPanel > Terminal (or SSH):
-   ```bash
-   cd ~/backyardapi
-   bash deploy.sh                      # installs packages, migrates, collects static, restarts
-   source ~/virtualenv/backyardapi/*/bin/activate
-   python manage.py seed               # 26 films + Night One (Lion)
-   python manage.py tmdb_sync          # real posters and details
-   python manage.py createsuperuser    # your login for the booth
-   ```
-6. **Updates.** Push to GitHub, then cPanel > Git Version Control > Manage > Pull or Deploy > "Update from Remote" and "Deploy HEAD Commit". `.cpanel.yml` runs `deploy.sh`.
+**Once, in cPanel:**
+1. Domains: create the API subdomain (e.g. `backyardapi.hellotrekkers.com`) and make sure it has an SSL certificate.
+2. Setup Python App > Create: Python **3.12 or newer**, application root `backyardapi`, application URL the subdomain, startup file `passenger_wsgi.py`, entry point `application`.
+3. SSH Access > Manage SSH Keys: import or generate a key pair for deploys and **Authorize** it.
 
-Check it: `https://api.yourdomain.com/api/site/` returns JSON and `https://api.yourdomain.com/booth/` shows the Projection Booth login.
+**Repository secrets** (Settings > Secrets and variables > Actions):
 
-Data lives in `db.sqlite3` and uploads in `media/` inside the app folder; neither is in git, so back them up (cPanel > Backup, or download them). To move your local data across, upload both after step 5.
+| Secret | Example |
+| --- | --- |
+| `SSH_PRIVATE_KEY` | the private half of the key authorized in cPanel |
+| `SSH_USERNAME` | your cPanel username |
+| `SERVER_IP` | the server's IP or hostname |
+| `SSH_PORT` | optional, defaults to 22 |
+| `APP_DIR` | optional, defaults to `backyardapi` |
+| `API_DOMAIN` | `backyardapi.hellotrekkers.com` |
+| `SITE_ORIGINS` | the website's address(es), e.g. `https://backyard.hellotrekkers.com` |
+| `DJANGO_SECRET_KEY` | a long random string |
+| `TMDB_TOKEN` | the TMDB read access token |
+
+**After the first deploy**, in cPanel Terminal:
+```bash
+source ~/virtualenv/backyardapi/*/bin/activate && cd ~/backyardapi
+python manage.py seed             # 26 films + Night One (Lion)
+python manage.py tmdb_sync        # real posters and details
+python manage.py createsuperuser  # your login for the booth
+```
+
+The database (`db.sqlite3`) and uploads (`media/`) live only on the server and deploys never touch them. Back them up with cPanel > Backup.
 
 ## What's on the site
 

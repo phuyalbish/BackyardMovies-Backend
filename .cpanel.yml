@@ -1,5 +1,0 @@
----
-# cPanel runs these from the repository folder. The Python app's "Application root" must be this folder.
-deployment:
-  tasks:
-    - /bin/bash ./deploy.sh
