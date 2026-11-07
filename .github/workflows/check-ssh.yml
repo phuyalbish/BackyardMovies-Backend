@@ -1,0 +1,43 @@
+name: Check SSH connection
+
+# Read-only diagnostics: shows whether GitHub's runner can reach the cPanel server over SSH.
+on:
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Runner's public IP (give this to your host if they need to allow it)
+        run: curl -s --max-time 10 https://api.ipify.org; echo
+
+      - name: SERVER_IP secret
+        env:
+          SERVER_IP: ${{ secrets.SERVER_IP }}
+        run: |
+          test -n "$SERVER_IP" || { echo "SERVER_IP secret is empty"; exit 1; }
+          echo "Length: ${#SERVER_IP} characters"
+          case "$SERVER_IP" in *" "*|*$'\n'*|*$'\r'*) echo "WARNING: contains spaces or line breaks";; esac
+          echo "Resolves to: $(getent ahostsv4 "$SERVER_IP" | awk 'NR==1{print $1}')"
+          [ "$(getent ahostsv4 "$SERVER_IP" | awk 'NR==1{print $1}')" = "36.253.137.6" ] && echo "Matches 36.253.137.6 (hellotrekkers.com)" || echo "Does NOT match 36.253.137.6"
+
+      - name: Can the runner reach the SSH ports?
+        env:
+          SERVER_IP: ${{ secrets.SERVER_IP }}
+        run: |
+          for p in 22 2222; do
+            if timeout 10 bash -c "exec 3<>/dev/tcp/$SERVER_IP/$p" 2>/dev/null; then echo "port $p: open"; else echo "port $p: no answer (blocked or closed)"; fi
+          done
+          echo "For comparison, the website port:"
+          timeout 10 bash -c "exec 3<>/dev/tcp/$SERVER_IP/443" 2>/dev/null && echo "port 443: open" || echo "port 443: no answer"
+
+      - name: SSH login attempt (verbose, 20 s limit)
+        env:
+          SERVER_IP: ${{ secrets.SERVER_IP }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keygen -y -f ~/.ssh/id_ed25519 >/dev/null && echo "Private key format: OK" || echo "Private key format: INVALID (check the SSH_PRIVATE_KEY secret)"
+          ssh -v -o BatchMode=yes -o ConnectTimeout=20 -o StrictHostKeyChecking=accept-new \
+            -i ~/.ssh/id_ed25519 ${{ secrets.SSH_USERNAME }}@"$SERVER_IP" 'echo "Logged in as $(whoami) on $(hostname)"' 2>&1 | grep -E "Connecting|Connection|connect to|Authenticated|Permission denied|Logged in|Server accepts|Offering" || true
