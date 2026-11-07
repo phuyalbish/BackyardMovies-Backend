@@ -32,7 +32,6 @@ jobs:
           fi
           echo "Key fingerprint (compare with: ssh-keygen -lf <your private key file>):"
           ssh-keygen -lf /tmp/key.pub
-          ssh-keyscan -H "${{ secrets.SERVER_IP }}" >> ~/.ssh/known_hosts 2>/dev/null
           cat >> ~/.ssh/config <<CFG
           Host deploy
             HostName ${{ secrets.SERVER_IP }}
@@ -41,10 +40,17 @@ jobs:
             IdentitiesOnly yes
             PreferredAuthentications publickey
             BatchMode yes
+            StrictHostKeyChecking accept-new
             ConnectTimeout 30
             ServerAliveInterval 30
+            # One shared connection for the whole job: the server's firewall limits
+            # how many new SSH connections an address may open in a short time.
+            ControlMaster auto
+            ControlPath ~/.ssh/cm-%r@%h-%p
+            ControlPersist 20m
           CFG
-          if ! ssh deploy exit; then
+          # Open the shared connection; every later "ssh deploy" goes through it.
+          if ! ssh deploy true; then
             echo "::error::The server refused this key. Its fingerprint is printed above; make sure the matching public key is in ~/.ssh/authorized_keys on the server (cPanel > SSH Access > Manage SSH Keys > Authorize)."
             exit 1
           fi
@@ -107,3 +113,7 @@ jobs:
           code=$(curl -s -o /dev/null -w "%{http_code}" "$API_URL/api/site/")
           echo "GET $API_URL/api/site/ -> $code"
           test "$code" = "200"
+
+      - name: Close the SSH connection
+        if: always()
+        run: ssh -O exit deploy 2>/dev/null || true
