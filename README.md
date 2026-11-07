@@ -32,16 +32,15 @@ Deploys run from GitHub: Actions > "Deploy backend to cPanel" > Run workflow. It
 2. Setup Python App > Create: Python **3.12 or newer**, application root `backyardapi`, application URL the subdomain, startup file `passenger_wsgi.py`, entry point `application`.
 3. SSH Access > Manage SSH Keys: import or generate a key pair for deploys and **Authorize** it.
 
-**Repository secrets** (Settings > Secrets and variables > Actions): `SSH_PRIVATE_KEY`, `SSH_USERNAME`, `SERVER_IP`. The app folder (`backyardapi`) and API address are set at the top of `.github/workflows/deploy.yml`.
+**Repository secrets** (Settings > Secrets and variables > Actions): `SSH_PRIVATE_KEY`, `SSH_USERNAME`, `SERVER_IP`, and `TMDB_TOKEN` (the TMDB read access token; each deploy writes it into the server's `.env`). The app folder (`backyardapi`) and API address are set at the top of `.github/workflows/deploy.yml`.
 
-**`.env` on the server, once.** Deploys never overwrite it. Create `~/backyardapi/.env`:
+**`.env` on the server, once.** Deploys only ever replace its `TMDB_TOKEN` line. Create `~/backyardapi/.env`:
 ```
 DJANGO_SECRET_KEY=<long random string>
 DJANGO_DEBUG=0
 DJANGO_ALLOWED_HOSTS=backyardapi.hellotrekkers.com
 CSRF_TRUSTED_ORIGINS=https://backyardapi.hellotrekkers.com
-CORS_ORIGINS=https://<the website's domain>
-TMDB_TOKEN=<TMDB read access token>
+CORS_ORIGINS=https://backyard.hellotrekkers.com
 ```
 
 **After the first deploy**, in cPanel Terminal:

@@ -47,6 +47,26 @@ jobs:
           ssh -i ~/.ssh/id_ed25519 ${{ secrets.SSH_USERNAME }}@${{ secrets.SERVER_IP }} \
             "mkdir -p ~/$APP_DIR && tar -xzf - -C ~/$APP_DIR" < "$RUNNER_TEMP/backend.tgz"
 
+      # Only the TMDB_TOKEN line of the server's .env is managed here; every other line is left as it is.
+      # The token goes over SSH's stdin, so it never appears in a command line or in the logs.
+      - name: Set TMDB token on the server
+        env:
+          TMDB_TOKEN: ${{ secrets.TMDB_TOKEN }}
+        run: |
+          test -n "$TMDB_TOKEN" || { echo "The TMDB_TOKEN secret is empty"; exit 1; }
+          printf '%s\n' "$TMDB_TOKEN" | ssh -i ~/.ssh/id_ed25519 ${{ secrets.SSH_USERNAME }}@${{ secrets.SERVER_IP }} "
+            set -e
+            read -r T
+            F=\$HOME/$APP_DIR/.env
+            umask 077
+            touch \"\$F\"
+            grep -v '^TMDB_TOKEN=' \"\$F\" > \"\$F.tmp\" || true
+            printf 'TMDB_TOKEN=%s\\n' \"\$T\" >> \"\$F.tmp\"
+            mv \"\$F.tmp\" \"\$F\"
+            chmod 600 \"\$F\"
+            echo TMDB_TOKEN set in \$F
+          "
+
       # deploy.sh: checks the Python version, installs packages, migrates, collects static files, restarts.
       - name: Install, migrate and restart
         run: |
