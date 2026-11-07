@@ -25,26 +25,24 @@ Demo accounts created by `seed --demo` all use the password `backyard-demo-1` (`
 
 ## Deploy on cPanel
 
-Deploys run from GitHub: Actions > "Deploy backend to cPanel" > Run workflow. It uploads the code over SSH to the app folder, writes `.env` from the repository secrets, then runs `deploy.sh` (Python check, `pip install`, `migrate`, `collectstatic`, restart) and checks that `/api/site/` answers.
+Deploys run from GitHub: Actions > "Deploy backend to cPanel" > Run workflow. It uploads the code over SSH to the app folder, then runs `deploy.sh` (Python check, `pip install`, `migrate`, `collectstatic`, restart) and checks that `/api/site/` answers.
 
 **Once, in cPanel:**
 1. Domains: create the API subdomain (e.g. `backyardapi.hellotrekkers.com`) and make sure it has an SSL certificate.
 2. Setup Python App > Create: Python **3.12 or newer**, application root `backyardapi`, application URL the subdomain, startup file `passenger_wsgi.py`, entry point `application`.
 3. SSH Access > Manage SSH Keys: import or generate a key pair for deploys and **Authorize** it.
 
-**Repository secrets** (Settings > Secrets and variables > Actions):
+**Repository secrets** (Settings > Secrets and variables > Actions): `SSH_PRIVATE_KEY`, `SSH_USERNAME`, `SERVER_IP`. The app folder (`backyardapi`) and API address are set at the top of `.github/workflows/deploy.yml`.
 
-| Secret | Example |
-| --- | --- |
-| `SSH_PRIVATE_KEY` | the private half of the key authorized in cPanel |
-| `SSH_USERNAME` | your cPanel username |
-| `SERVER_IP` | the server's IP or hostname |
-| `SSH_PORT` | optional, defaults to 22 |
-| `APP_DIR` | optional, defaults to `backyardapi` |
-| `API_DOMAIN` | `backyardapi.hellotrekkers.com` |
-| `SITE_ORIGINS` | the website's address(es), e.g. `https://backyard.hellotrekkers.com` |
-| `DJANGO_SECRET_KEY` | a long random string |
-| `TMDB_TOKEN` | the TMDB read access token |
+**`.env` on the server, once.** Deploys never overwrite it. Create `~/backyardapi/.env`:
+```
+DJANGO_SECRET_KEY=<long random string>
+DJANGO_DEBUG=0
+DJANGO_ALLOWED_HOSTS=backyardapi.hellotrekkers.com
+CSRF_TRUSTED_ORIGINS=https://backyardapi.hellotrekkers.com
+CORS_ORIGINS=https://<the website's domain>
+TMDB_TOKEN=<TMDB read access token>
+```
 
 **After the first deploy**, in cPanel Terminal:
 ```bash
