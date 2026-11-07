@@ -9,6 +9,7 @@ jobs:
     env:
       APP_DIR: backyardapi                          # the Python app's "Application root" in cPanel
       API_URL: https://backyardapi.hellotrekkers.com
+      SITE_URL: https://backyard.hellotrekkers.com  # the website, allowed to call the API (CORS)
 
     steps:
       - name: Checkout code
@@ -105,7 +106,7 @@ jobs:
       - name: Install, migrate and restart
         run: |
           ssh deploy \
-            "bash ~/$APP_DIR/deploy.sh"
+            "API_HOST=${API_URL#https://} SITE_ORIGIN=$SITE_URL bash ~/$APP_DIR/deploy.sh"
 
       - name: Check the API answers
         run: |

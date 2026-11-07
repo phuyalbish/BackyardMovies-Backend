@@ -34,18 +34,12 @@ Deploys run from GitHub: Actions > "Deploy backend to cPanel" > Run workflow. It
 
 **Repository secrets** (Settings > Secrets and variables > Actions): `SSH_PRIVATE_KEY`, `SSH_USERNAME`, `SERVER_IP`, and `TMDB_TOKEN` (the TMDB read access token; each deploy writes it into the server's `.env`). The app folder (`backyardapi`) and API address are set at the top of `.github/workflows/deploy.yml`.
 
-**`.env` on the server, once.** Deploys only ever replace its `TMDB_TOKEN` line. Create `~/backyardapi/.env`:
-```
-DJANGO_SECRET_KEY=<long random string>
-DJANGO_DEBUG=0
-DJANGO_ALLOWED_HOSTS=backyardapi.hellotrekkers.com
-CSRF_TRUSTED_ORIGINS=https://backyardapi.hellotrekkers.com
-CORS_ORIGINS=https://backyard.hellotrekkers.com
-```
+**`.env` on the server.** You don't need to write it. Each deploy fills in whatever is missing in `~/backyardapi/.env`: a random `DJANGO_SECRET_KEY` (generated once, then kept), `DJANGO_DEBUG=0`, the allowed host and trusted origin from `API_URL`, `CORS_ORIGINS` from `SITE_URL` (both set at the top of the workflow), `SERVE_MEDIA=1`, and `TMDB_TOKEN` from the secret. A line you set by hand is never changed.
 
 **After the first deploy**, in cPanel Terminal:
 ```bash
 source ~/virtualenv/backyardapi/*/bin/activate && cd ~/backyardapi
+python manage.py migrate          # if the first deploy didn't get this far
 python manage.py seed             # 26 films + Night One (Lion)
 python manage.py tmdb_sync        # real posters and details
 python manage.py createsuperuser  # your login for the booth

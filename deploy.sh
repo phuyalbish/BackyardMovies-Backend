@@ -20,7 +20,31 @@ if ! python -c 'import sys; sys.exit(0 if sys.version_info >= (3, 12) else 1)'; 
   exit 1
 fi
 
-# .env must hold the production settings, not just the TMDB token the workflow writes.
+# Fill in any production setting .env doesn't have yet. Lines already set are never changed.
+# API_HOST and SITE_ORIGIN come from the deploy workflow.
+OLD_UMASK=$(umask)
+umask 077
+touch .env
+add_if_missing() {  # add_if_missing KEY VALUE
+  if [[ -z "$2" ]]; then echo "No value to add for $1" >&2; exit 1; fi
+  if ! grep -q "^$1=." .env; then
+    sed -i "/^$1=/d" .env
+    printf '%s=%s\n' "$1" "$2" >> .env
+    echo "Added $1 to .env"
+  fi
+}
+grep -q '^DJANGO_SECRET_KEY=.' .env || add_if_missing DJANGO_SECRET_KEY "$(python -c 'import secrets; print(secrets.token_urlsafe(50))')"
+add_if_missing DJANGO_DEBUG 0
+if [[ -n "${API_HOST:-}" ]]; then
+  add_if_missing DJANGO_ALLOWED_HOSTS "$API_HOST"
+  add_if_missing CSRF_TRUSTED_ORIGINS "https://$API_HOST"
+fi
+[[ -n "${SITE_ORIGIN:-}" ]] && add_if_missing CORS_ORIGINS "$SITE_ORIGIN"
+add_if_missing SERVE_MEDIA 1
+chmod 600 .env
+umask "$OLD_UMASK"
+
+# .env must now hold every production setting.
 missing=()
 for key in DJANGO_SECRET_KEY DJANGO_DEBUG DJANGO_ALLOWED_HOSTS CSRF_TRUSTED_ORIGINS CORS_ORIGINS; do
   grep -q "^$key=." .env 2>/dev/null || missing+=("$key")
