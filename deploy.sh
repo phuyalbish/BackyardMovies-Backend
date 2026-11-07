@@ -6,6 +6,10 @@ cd "$(dirname "$0")"
 APP_DIR="$(pwd)"
 REL="${APP_DIR#"$HOME"/}"
 
+# Another app's PYTHONHOME/PYTHONPATH in the account's shell profile would make this app's Python load
+# the wrong standard library or packages, so clear them first.
+unset PYTHONHOME PYTHONPATH
+
 # cPanel puts the app's virtualenv at ~/virtualenv/<application root>/<python version>/
 ACTIVATE="$(ls -d "$HOME/virtualenv/$REL"/*/bin/activate 2>/dev/null | sort -V | tail -n1 || true)"
 if [[ -z "$ACTIVATE" ]]; then
