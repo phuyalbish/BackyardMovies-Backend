@@ -75,10 +75,10 @@ Films with neither an uploaded poster nor a TMDB poster get a generated, screen-
 The booth is at **`/booth`** on the site (for example `https://backyard.hellotrekkers.com/booth`). Sign in with a staff account; anyone else sees "Staff only". It has six sections:
 
 1. **Tonight**: the next night at a glance. Seats booked, who's coming (tick them in as they arrive), the ballot leaders and the latest comments. **Mark screened** closes the night and writes a diary entry for everyone ticked in.
-2. **Films**: search and filter the vault. **Add film** searches every film on TMDB. Flip **On ballot** to let members vote for a film. The menu on each row approves or sets aside member suggestions, fills details in from TMDB, resets votes for a new round, or deletes. **Edit** opens every field, including a poster upload.
-3. **Screenings**: plan a night (film, time, venue, seats, host note), feature it on the home page, and open it to see bookings and tick people in. Cancel or mark screened from the row menu.
+2. **Films**: the search finds our films and every film on TMDB; a TMDB film is added the moment you switch it on or open it. **On ballot** lets members vote for a film; **Film strip** puts its poster in the strip that rolls across the home page. The menu on each row fills details in from TMDB, resets votes for a new round, or deletes. **Edit** opens the film's own page with every field, including a poster upload.
+3. **Screenings**: plan a night (film, time, venue, seats, host note), feature it on the home page, and open it (its own page) to edit it, see bookings and tick people in. Cancel or mark screened from there or from the row menu.
 4. **Comments**: hide a comment without deleting it, or delete it.
 5. **Members**: everyone with an account; give or remove staff access.
-6. **Settings**: the venue, address, WhatsApp, phone and Instagram shown in the footer.
+6. **Settings**: an image or short video (up to 60 MB) for the bedsheet screen at the top of the home page, and the venue, address, WhatsApp, phone and Instagram shown in the footer.
 
 Django's own admin still exists at `/booth/` on the API address, as a fallback for things the booth doesn't do (passwords, superusers). It is trimmed to films, screenings, reservations, comments and site settings.

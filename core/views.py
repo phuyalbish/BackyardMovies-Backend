@@ -12,7 +12,7 @@ from rest_framework.response import Response
 from . import tmdb
 from .models import Comment, Film, LogEntry, Reservation, Screening, Shelf, SiteSettings, Vote
 from .serializers import (
-    CommentSerializer, FilmCardSerializer,
+    CommentSerializer, FilmCardSerializer, can_vote,
     FilmDetailSerializer, LogEntrySerializer, MemberSerializer, MeSerializer,
     MyReservationSerializer, RegisterSerializer, ReservationSerializer,
     ScreeningCardSerializer, ScreeningDetailSerializer, SiteSettingsSerializer,
@@ -51,7 +51,7 @@ def films_qs():
 @api_view(["GET"])
 @permission_classes([AllowAny])
 def site(request):
-    data = SiteSettingsSerializer(SiteSettings.load()).data
+    data = SiteSettingsSerializer(SiteSettings.load(), context=ctx(request)).data
     data["stats"] = {
         "members": User.objects.count(),
         "nights": Screening.objects.filter(status="done").count(),
@@ -133,6 +133,8 @@ def my_reservations(request):
 @permission_classes([AllowAny])
 def film_list(request):
     qs = films_qs().filter(status="vault")
+    if request.GET.get("strip"):
+        qs = qs.filter(in_strip=True)
     q = request.GET.get("q", "").strip()
     if q:
         qs = qs.filter(Q(title__icontains=q) | Q(director__icontains=q) | Q(original_title__icontains=q))
@@ -173,13 +175,45 @@ def import_film(tmdb_id):
     return f
 
 
+OUR_ORDER = {"newest": "-year", "oldest": "year", "title": "title", "rated": "-vote_count", "popular": "-vote_count"}
+
+
+def our_films(request, q, genre, decade, country):
+    """The films on our list, matching the vault's filters, shown before the rest of TMDB."""
+    qs = films_qs().filter(status="vault", listed=True)
+    if q:
+        qs = qs.filter(Q(title__icontains=q) | Q(original_title__icontains=q) | Q(director__icontains=q))
+    try:
+        if genre:
+            names = {str(g["id"]): g["name"] for g in tmdb.get("/genre/movie/list", language="en")["genres"]}
+            for gid in genre:
+                qs = qs.filter(genres__icontains=names[gid]) if gid in names else qs.none()
+        if country and not q:
+            name = next((c["english_name"] for c in tmdb.get("/configuration/countries", language="en-US") if c["iso_3166_1"] == country), None)
+            qs = qs.filter(country__icontains=name) if name else qs.none()
+    except tmdb.TMDBError:
+        qs = qs.none()
+    if decade and decade.isdigit():
+        qs = qs.filter(year__gte=int(decade), year__lt=int(decade) + 10)
+    qs = qs.order_by(OUR_ORDER.get(request.GET.get("sort"), "-vote_count"), "title")[:60]
+    c = ctx(request)
+    rows = []
+    for f in qs:
+        card = FilmCardSerializer(f, context=c).data
+        rows.append({**card, "tmdb_id": f.tmdb_id, "original_title": "", "overview": "", "genre_ids": [], "language": "",
+                     "ours": True})
+    return rows
+
+
 @api_view(["GET"])
 @permission_classes([AllowAny])
 def catalogue(request):
     """Search or browse every film on TMDB, merged with what we know locally (votes, stamps, your marks)."""
     q = request.GET.get("q", "").strip()
     page = max(1, min(int(request.GET.get("page") or 1), 500))
-    genre, decade, country = request.GET.get("genre"), request.GET.get("decade"), request.GET.get("country")
+    # several genres at once means films with all of them (Comedy + Romance = romantic comedies)
+    genre = [g for g in (request.GET.get("genre") or "").split(",") if g.isdigit()]
+    decade, country = request.GET.get("decade"), request.GET.get("country")
     try:
         if q:
             data = tmdb.get("/search/movie", query=q, page=page, include_adult="false")
@@ -187,7 +221,7 @@ def catalogue(request):
             sort = SORTS.get(request.GET.get("sort"), SORTS["popular"])
             d = int(decade) if decade and decade.isdigit() else None
             params = {"page": page, "sort_by": sort, "include_adult": "false",
-                      "with_genres": genre, "with_origin_country": country}
+                      "with_genres": ",".join(genre) or None, "with_origin_country": country}
             if d:
                 params["primary_release_date.gte"] = f"{d}-01-01"
                 params["primary_release_date.lte"] = f"{d + 9}-12-31"
@@ -201,10 +235,11 @@ def catalogue(request):
     except tmdb.TMDBError as e:
         return Response({"detail": str(e)}, status=502)
 
+    ours = our_films(request, q, genre, decade, country) if page == 1 else []
     cards = [tmdb.card(m) for m in data.get("results", [])]
     if q and (genre or decade):  # TMDB search can't filter, so narrow the page here
         d = int(decade) if decade and decade.isdigit() else None
-        cards = [c for c in cards if (not genre or int(genre) in c["genre_ids"])
+        cards = [c for c in cards if all(int(g) in c["genre_ids"] for g in genre)
                  and (not d or (c["year"] and d <= c["year"] < d + 10))]
     local = {f.tmdb_id: f for f in films_qs().filter(tmdb_id__in=[c["tmdb_id"] for c in cards])}
     c = ctx(request)
@@ -219,7 +254,7 @@ def catalogue(request):
             card = {**card, "id": None, "slug": None, "votes": 0, "on_ballot": False, "showing": None,
                     "mine": {"watchlist": False, "watched": False, "favourite": False, "diary": 0} if request.user.is_authenticated else None}
         out.append(card)
-    return Response({"results": out, "page": data.get("page", page), "total_pages": min(data.get("total_pages", 1), 500),
+    return Response({"results": ours + out, "page": data.get("page", page), "total_pages": min(data.get("total_pages", 1), 500),
                      "total": data.get("total_results", len(out))})
 
 
@@ -305,6 +340,8 @@ def my_film_mark(request, slug):
 @permission_classes([IsAuthenticated])
 def film_vote(request, slug):
     f = get_object_or_404(Film, slug=slug, status="vault")
+    if not can_vote(request.user):
+        return Response({"detail": "A host needs to approve your account before you can vote."}, status=403)
     if not f.on_ballot:
         return Response({"detail": "This film isn't on the ballot right now."}, status=400)
     vote = Vote.objects.filter(film=f, user=request.user).first()
@@ -357,20 +394,17 @@ def reserve(request, pk):
         return Response(status=204)
     if s.status != "upcoming":
         return Response({"detail": "This screening is not taking reservations."}, status=400)
-    data = ReservationSerializer(data=request.data or {"seats": 1})
+    data = ReservationSerializer(data=request.data or {})
     data.is_valid(raise_exception=True)
-    seats = data.validated_data.get("seats", 1)
+    guests = data.validated_data.get("guests", [])
+    seats = 1 + len(guests)
     freed = existing.seats if existing else 0
     if seats > s.seats_left + freed:
         return Response({"detail": f"Only {s.seats_left + freed} seats left under the sky."}, status=400)
-    if existing:
-        existing.seats = seats
-        existing.note = data.validated_data.get("note", existing.note)
-        existing.save()
-        r = existing
-    else:
-        r = Reservation.objects.create(screening=s, user=request.user, seats=seats,
-                                       note=data.validated_data.get("note", ""))
+    r = existing or Reservation(screening=s, user=request.user)
+    r.guests = guests
+    r.note = data.validated_data.get("note", r.note)
+    r.save()
     return Response(ReservationSerializer(r).data, status=201)
 
 

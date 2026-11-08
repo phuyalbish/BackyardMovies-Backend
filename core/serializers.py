@@ -15,9 +15,18 @@ def media_url(request, field):
 
 
 class SiteSettingsSerializer(serializers.ModelSerializer):
+    screen_kind = serializers.CharField(read_only=True)
+    MAX_SCREEN_MB = 60
+
     class Meta:
         model = SiteSettings
         exclude = ["id"]
+        extra_kwargs = {"screen_media": {"required": False, "allow_null": True}}
+
+    def validate_screen_media(self, f):
+        if f and f.size > self.MAX_SCREEN_MB * 1024 * 1024:
+            raise serializers.ValidationError(f"Keep it under {self.MAX_SCREEN_MB} MB. Trim or compress the video first.")
+        return f
 
 
 class MemberSerializer(serializers.ModelSerializer):
@@ -39,6 +48,11 @@ class MemberSerializer(serializers.ModelSerializer):
         return media_url(self.context.get("request"), p.avatar) if p else None
 
 
+def can_vote(user):
+    """Hosts approve members before they can vote; staff always can."""
+    return bool(user.is_staff or getattr(getattr(user, "profile", None), "can_vote", False))
+
+
 class ProfileSerializer(serializers.ModelSerializer):
     class Meta:
         model = Profile
@@ -47,11 +61,15 @@ class ProfileSerializer(serializers.ModelSerializer):
 
 class MeSerializer(serializers.ModelSerializer):
     profile = ProfileSerializer()
+    can_vote = serializers.SerializerMethodField()
 
     class Meta:
         model = User
-        fields = ["id", "username", "email", "is_staff", "profile", "date_joined"]
+        fields = ["id", "username", "email", "is_staff", "can_vote", "profile", "date_joined"]
         read_only_fields = ["id", "username", "is_staff", "date_joined"]
+
+    def get_can_vote(self, u):
+        return can_vote(u)
 
     def update(self, instance, data):
         profile_data = data.pop("profile", {})
@@ -211,13 +229,17 @@ class ReservationSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Reservation
-        fields = ["id", "code", "seats", "note", "created_at", "attended"]
-        read_only_fields = ["id", "code", "created_at", "attended"]
+        fields = ["id", "code", "seats", "guests", "note", "created_at", "attended"]
+        read_only_fields = ["id", "code", "seats", "created_at", "attended"]
 
-    def validate_seats(self, v):
-        if not 1 <= v <= 4:
-            raise serializers.ValidationError("Between one and four seats per member.")
-        return v
+    def validate_guests(self, v):
+        if not isinstance(v, list) or not all(isinstance(n, str) for n in v):
+            raise serializers.ValidationError("A list of names.")
+        names = [" ".join(n.split())[:80] for n in v]
+        names = [n for n in names if n]
+        if len(names) > Reservation.MAX_GUESTS:
+            raise serializers.ValidationError(f"You can bring up to {Reservation.MAX_GUESTS} people.")
+        return names
 
 
 class MyReservationSerializer(ReservationSerializer):
@@ -278,17 +300,17 @@ class BoothFilmSerializer(serializers.ModelSerializer):
         model = Film
         fields = ["id", "slug", "title", "original_title", "year", "director", "country", "language", "runtime",
                   "genres", "tagline", "synopsis", "palette", "trailer_url", "poster", "poster_url", "poster_src",
-                  "on_ballot", "status", "tmdb_id", "suggested_by", "pitch", "created_at", "votes",
+                  "on_ballot", "in_strip", "listed", "status", "tmdb_id", "suggested_by", "pitch", "created_at", "votes",
                   "screenings_count"]
-        read_only_fields = ["slug", "tmdb_id", "pitch", "created_at"]
+        read_only_fields = ["slug", "tmdb_id", "listed", "pitch", "created_at"]
         extra_kwargs = {"poster": {"required": False, "allow_null": True}}
 
     def get_poster_src(self, f):
         return film_poster(self.context.get("request"), f)
 
     def validate(self, data):
-        if data.get("on_ballot"):
-            data["status"] = Film.Status.VAULT  # only vault films can be voted for
+        if data.get("on_ballot") or data.get("in_strip"):
+            data["status"] = Film.Status.VAULT  # only vault films are voted for or shown on the home page
         return data
 
 
@@ -297,7 +319,7 @@ class BoothReservationSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Reservation
-        fields = ["id", "code", "user", "seats", "note", "attended", "created_at"]
+        fields = ["id", "code", "user", "seats", "guests", "note", "attended", "created_at"]
         read_only_fields = ["note", "created_at"]
 
 
@@ -342,11 +364,12 @@ class BoothMemberSerializer(serializers.ModelSerializer):
     avatar = serializers.SerializerMethodField()
     reservation_count = serializers.IntegerField(read_only=True, default=0)
     comment_count = serializers.IntegerField(read_only=True, default=0)
+    can_vote = serializers.BooleanField(source="profile.can_vote", required=False)
 
     class Meta:
         model = User
-        fields = ["id", "username", "email", "display_name", "avatar", "is_staff", "is_superuser", "date_joined",
-                  "last_login", "reservation_count", "comment_count"]
+        fields = ["id", "username", "email", "display_name", "avatar", "is_staff", "is_superuser", "can_vote",
+                  "date_joined", "last_login", "reservation_count", "comment_count"]
         read_only_fields = ["username", "email", "is_superuser", "date_joined", "last_login"]
 
     def get_display_name(self, u):
@@ -354,3 +377,29 @@ class BoothMemberSerializer(serializers.ModelSerializer):
 
     def get_avatar(self, u):
         return MemberSerializer.get_avatar(self, u)
+
+    def update(self, instance, data):
+        profile = data.pop("profile", {})
+        if "can_vote" in profile:
+            instance.profile.can_vote = profile["can_vote"]
+            instance.profile.save(update_fields=["can_vote"])
+        return super().update(instance, data)
+
+
+class BoothNewMemberSerializer(RegisterSerializer):
+    """A host adding someone by hand: same checks as signing up, and they can vote straight away."""
+    can_vote = serializers.BooleanField(default=True)
+    is_staff = serializers.BooleanField(default=False)
+
+    class Meta(RegisterSerializer.Meta):
+        fields = RegisterSerializer.Meta.fields + ["can_vote", "is_staff"]
+
+    def create(self, data):
+        can_vote, is_staff = data.pop("can_vote"), data.pop("is_staff")
+        user = super().create(data)
+        if is_staff:
+            user.is_staff = True
+            user.save(update_fields=["is_staff"])
+        user.profile.can_vote = can_vote
+        user.profile.save(update_fields=["can_vote"])
+        return user

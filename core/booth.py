@@ -9,7 +9,7 @@ from django.db.models import Count, ProtectedError, Q, Sum
 from django.db.models.functions import Coalesce
 from django.utils import timezone
 from rest_framework import mixins, status, viewsets
-from rest_framework.decorators import action, api_view, permission_classes
+from rest_framework.decorators import action, api_view, parser_classes, permission_classes
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.permissions import IsAdminUser
@@ -20,7 +20,7 @@ from . import tmdb
 from .models import Comment, Film, Reservation, Screening, SiteSettings, Vote
 from .serializers import (
     BoothCommentSerializer, BoothFilmSerializer, BoothMemberSerializer, BoothReservationSerializer,
-    BoothScreeningSerializer, SiteSettingsSerializer,
+    BoothNewMemberSerializer, BoothScreeningSerializer, SiteSettingsSerializer,
 )
 
 User = get_user_model()
@@ -61,7 +61,34 @@ class FilmViewSet(BoothMixin, viewsets.ModelViewSet):
             qs = qs.filter(status=st)
         if (b := self.flag("on_ballot")) is not None:
             qs = qs.filter(on_ballot=b)
+        if (b := self.flag("in_strip")) is not None:
+            qs = qs.filter(in_strip=b)
+        if self.action == "list":
+            qs = qs.filter(listed=True)
         return qs.order_by(self.ORDERS.get(p.get("order"), "-created_at"), "title")
+
+    def list(self, request, *args, **kwargs):
+        """A search also asks TMDB, so any film in the world shows up. Films we don't have yet come back
+        with id null and from_tmdb true; the booth imports one the moment you switch it on or edit it."""
+        q = request.query_params.get("q", "").strip()
+        if not q or self.flag("on_ballot") or self.flag("in_strip"):
+            return super().list(request, *args, **kwargs)
+        local = list(self.get_queryset()[:50])
+        note = None
+        try:
+            found = [tmdb.card(m) for m in tmdb.get("/search/movie", query=q, include_adult="false").get("results", [])]
+        except tmdb.TMDBError as e:
+            found, note = [], str(e)
+        have = {f.tmdb_id for f in local}
+        rows = list(self.get_serializer(local, many=True).data)
+        for c in found:
+            if c["tmdb_id"] in have:
+                continue
+            rows.append({"id": None, "tmdb_id": c["tmdb_id"], "title": c["title"], "original_title": c["original_title"],
+                         "year": c["year"], "director": "", "poster_src": c["poster"], "on_ballot": False,
+                         "in_strip": False, "listed": False, "votes": 0, "screenings_count": 0, "created_at": None,
+                         "from_tmdb": True})
+        return Response({"count": len(rows), "next": None, "previous": None, "results": rows, "tmdb_error": note})
 
     def destroy(self, request, *args, **kwargs):
         try:
@@ -102,12 +129,18 @@ class FilmViewSet(BoothMixin, viewsets.ModelViewSet):
             tid = int(request.data.get("tmdb_id"))
         except (TypeError, ValueError):
             return Response({"tmdb_id": ["A TMDB id is required."]}, status=400)
-        existed = Film.objects.filter(tmdb_id=tid).exists()
+        existed = Film.objects.filter(tmdb_id=tid, listed=True).exists()
         try:
             film = import_film(tid)
         except tmdb.TMDBError as e:
             return Response({"detail": str(e)}, status=502)
+        if not film.listed or film.status != Film.Status.VAULT:
+            film.listed, film.status = True, Film.Status.VAULT
+            film.save(update_fields=["listed", "status"])
         return Response(self.fresh(film), status=200 if existed else 201)
+
+    def perform_create(self, serializer):
+        serializer.save(listed=True)  # a film a host types in by hand is ours
 
 
 # ---------- screenings and reservations ----------
@@ -177,10 +210,16 @@ class CommentViewSet(BoothMixin, mixins.ListModelMixin, mixins.RetrieveModelMixi
 
 class MemberViewSet(BoothMixin, mixins.ListModelMixin, mixins.RetrieveModelMixin, mixins.UpdateModelMixin,
                     viewsets.GenericViewSet):
+    def create(self, request):
+        s = BoothNewMemberSerializer(data=request.data)
+        s.is_valid(raise_exception=True)
+        user = s.save()
+        return Response(self.get_serializer(self.get_queryset().get(pk=user.pk)).data, status=201)
+
     serializer_class = BoothMemberSerializer
 
     def get_queryset(self):
-        qs = (User.objects.select_related("profile")
+        qs = (User.objects.filter(is_superuser=False).select_related("profile")
               .annotate(reservation_count=Count("reservations", distinct=True),
                         comment_count=Count("comments", distinct=True))
               .order_by("-date_joined"))
@@ -188,6 +227,9 @@ class MemberViewSet(BoothMixin, mixins.ListModelMixin, mixins.RetrieveModelMixin
             qs = qs.filter(Q(username__icontains=q) | Q(profile__display_name__icontains=q) | Q(email__icontains=q))
         if self.flag("staff"):
             qs = qs.filter(is_staff=True)
+        if (v := self.flag("can_vote")) is not None:  # staff can always vote
+            ok = Q(profile__can_vote=True) | Q(is_staff=True)
+            qs = qs.filter(ok) if v else qs.exclude(ok)
         return qs
 
     def update(self, request, *args, **kwargs):
@@ -219,32 +261,37 @@ def dashboard(request):
     ballot = (Film.objects.filter(on_ballot=True, status=Film.Status.VAULT)
               .annotate(vote_count=Count("votes", distinct=True), screenings_count=Count("screenings", distinct=True))
               .order_by("-vote_count", "title")[:8])
-    recent = Comment.objects.select_related("user__profile", "film", "screening__film").order_by("-created_at")[:6]
     return Response({
         "tonight": tonight,
         "ballot": BoothFilmSerializer(ballot, many=True, context=c).data,
-        "recent_comments": BoothCommentSerializer(recent, many=True, context=c).data,
         "counts": {
-            "members": User.objects.count(),
-            "films": Film.objects.filter(status=Film.Status.VAULT).count(),
+            "members": User.objects.filter(is_superuser=False).count(),
+            "awaiting_approval": User.objects.filter(is_superuser=False, is_staff=False, profile__can_vote=False).count(),
+            "films": Film.objects.filter(status=Film.Status.VAULT, listed=True).count(),
             "suggestions": Film.objects.filter(status=Film.Status.SUGGESTED).count(),
             "hidden_comments": Comment.objects.filter(is_hidden=True).count(),
             "upcoming": Screening.objects.filter(status=Screening.Status.UPCOMING).count(),
             "on_ballot": Film.objects.filter(on_ballot=True, status=Film.Status.VAULT).count(),
+            "in_strip": Film.objects.filter(in_strip=True, status=Film.Status.VAULT).count(),
         },
     })
 
 
 @api_view(["GET", "PATCH"])
 @permission_classes([IsAdminUser])
+@parser_classes([JSONParser, MultiPartParser, FormParser])
 def settings_view(request):
     obj = SiteSettings.load()
+    c = {"request": request}
     if request.method == "PATCH":
-        s = SiteSettingsSerializer(obj, data=request.data, partial=True)
+        old = obj.screen_media.name if obj.screen_media else None
+        s = SiteSettingsSerializer(obj, data=request.data, partial=True, context=c)
         s.is_valid(raise_exception=True)
         s.save()
+        if old and old != (obj.screen_media.name if obj.screen_media else None):
+            obj.screen_media.storage.delete(old)  # replaced or removed: don't leave big videos behind
         return Response(s.data)
-    return Response(SiteSettingsSerializer(obj).data)
+    return Response(SiteSettingsSerializer(obj, context=c).data)
 
 
 router = SimpleRouter()

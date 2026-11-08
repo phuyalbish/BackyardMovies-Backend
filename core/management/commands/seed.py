@@ -152,11 +152,14 @@ class Command(BaseCommand):
         SiteSettings.load()
         films = {}
         for title, year, director, country, runtime, genres, palette, tagline, synopsis in FILMS:
-            f, _ = Film.objects.update_or_create(
+            f, created = Film.objects.update_or_create(
                 title=title, year=year,
                 defaults=dict(director=director, country=country, runtime=runtime, genres=genres,
                               palette=palette, tagline=tagline, synopsis=synopsis, status="vault"),
             )
+            if created:  # a fresh database starts with these on our list and in the home page strip
+                f.listed = f.in_strip = True
+                f.save(update_fields=["listed", "in_strip"])
             films[title] = f
         self.stdout.write(f"{len(films)} films in the vault")
         self.attach_posters(films)
@@ -203,7 +206,8 @@ class Command(BaseCommand):
                                                                          "watched_on": timezone.localdate() - timedelta(days=rng.randint(3, 300))})
                 Shelf.objects.update_or_create(user=u, film=f, defaults={"watched": True})
         for u in people[:4]:
-            Reservation.objects.get_or_create(screening=lion, user=u, defaults={"seats": rng.randint(1, 2)})
+            Reservation.objects.get_or_create(screening=lion, user=u,
+                                              defaults={"guests": rng.choice([[], [], ["Sujan Tamang"], ["Mira Rai"]])})
 
         by_name = {u.username: u for u in people}
         for title, who, body in DEMO_TALK:
