@@ -19,7 +19,7 @@ cp .env.example .env        # then set TMDB_TOKEN; for local work also set DJANG
 .venv/bin/python manage.py runserver 8000
 ```
 
-The admin is the **Projection Booth** at `http://127.0.0.1:8000/booth/`.
+The CMS is the **Projection Booth**, a page of the frontend at `/booth`; this repo serves its staff API under `/api/booth/`. Django's admin at `/booth/` here is a fallback.
 
 Demo accounts created by `seed --demo` all use the password `backyard-demo-1` (`aarati`, `bibek`, `sushma`, `rohan`, `pema`). To start clean before going live, delete `db.sqlite3`, then run `migrate` and `seed` without `--demo`.
 
@@ -58,7 +58,7 @@ The database (`db.sqlite3`) and uploads (`media/`) live only on the server and d
 | Film | `/films/:slug` | Vote to screen it, log it in your diary with a rating |
 | Ballot | `/ballot` | Members only. The films the hosts put on the ballot, ranked by votes |
 | Member | `/u/:username` | Profile and diary of watched films |
-| Account | `/me` | Profile card (edit in place, sign out), tickets, and your private watchlist, watched and favourites; staff also get a link to the booth |
+| Account | `/me` | Profile card (edit in place, sign out), tickets, and your private watchlist, watched and favourites; staff also get a link to the Projection Booth |
 
 ## The film catalogue (TMDB)
 
@@ -72,9 +72,13 @@ Films with neither an uploaded poster nor a TMDB poster get a generated, screen-
 
 ## Running a night from the booth
 
-1. **Films**: add films, or approve member suggestions with the "Move to the vault" action.
-2. **Ballot**: tick *On the ballot* on the films members should choose between (or select them and run "Put on the ballot"). Only those films appear on the ballot and only they can be voted for. "Reset votes" clears a round.
-3. **Screenings**: create the night and tick *featured* to put it on the home page hero. Reservations appear inline.
-4. On the night, tick *attended* on reservations. Then run **Mark as screened**, which writes a diary entry for everyone marked attended.
-5. **Comments**: tick *hidden* to take a comment down without deleting it.
-6. **Site settings**: edit the venue, WhatsApp, phone and Instagram handle.
+The booth is at **`/booth`** on the site (for example `https://backyard.hellotrekkers.com/booth`). Sign in with a staff account; anyone else sees "Staff only". It has six sections:
+
+1. **Tonight**: the next night at a glance. Seats booked, who's coming (tick them in as they arrive), the ballot leaders and the latest comments. **Mark screened** closes the night and writes a diary entry for everyone ticked in.
+2. **Films**: search and filter the vault. **Add film** searches every film on TMDB. Flip **On ballot** to let members vote for a film. The menu on each row approves or sets aside member suggestions, fills details in from TMDB, resets votes for a new round, or deletes. **Edit** opens every field, including a poster upload.
+3. **Screenings**: plan a night (film, time, venue, seats, host note), feature it on the home page, and open it to see bookings and tick people in. Cancel or mark screened from the row menu.
+4. **Comments**: hide a comment without deleting it, or delete it.
+5. **Members**: everyone with an account; give or remove staff access.
+6. **Settings**: the venue, address, WhatsApp, phone and Instagram shown in the footer.
+
+Django's own admin still exists at `/booth/` on the API address, as a fallback for things the booth doesn't do (passwords, superusers). It is trimmed to films, screenings, reservations, comments and site settings.

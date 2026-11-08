@@ -57,8 +57,7 @@ def site(request):
         "nights": Screening.objects.filter(status="done").count(),
         "films": Film.objects.filter(status="vault").count(),
     }
-    nxt = (Screening.objects.filter(status="upcoming", starts_at__gte=timezone.now() - timezone.timedelta(hours=4))
-           .order_by("-is_featured", "starts_at").select_related("film").first())
+    nxt = Screening.next_up()
     data["next_screening"] = ScreeningDetailSerializer(nxt, context=ctx(request)).data if nxt else None
     return Response(data)
 

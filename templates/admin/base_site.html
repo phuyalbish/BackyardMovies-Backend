@@ -10,4 +10,3 @@
 <div id="site-name"><a href="{% url 'admin:index' %}"><span class="bym-b">Backyard</span> <span class="bym-m">movies</span> <small>projection booth</small></a></div>
 {% if user.is_anonymous %}{% include "admin/color_theme_toggle.html" %}{% endif %}
 {% endblock %}
-{% block nav-global %}<a class="bym-site" href="http://localhost:5173" target="_blank">View the site &rarr;</a>{% endblock %}

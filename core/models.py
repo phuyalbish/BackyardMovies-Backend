@@ -1,5 +1,5 @@
 from django.conf import settings
-from django.db import models
+from django.db import models, transaction
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 from django.utils import timezone
@@ -111,6 +111,20 @@ class Film(models.Model):
             self.slug = unique_slug(self, f"{self.title} {self.year or ''}")
         super().save(*args, **kwargs)
 
+    def apply_tmdb(self, d, overwrite=False):
+        """Fill this film from tmdb.details(). An uploaded poster always wins; other fields only
+        replace empty ones unless overwrite=True. Saves."""
+        self.tmdb_id = d.get("tmdb_id") or self.tmdb_id
+        for k, v in d.items():
+            if k == "tmdb_id" or not v:
+                continue
+            if k == "poster_url":
+                if not self.poster:
+                    self.poster_url = v
+            elif overwrite or not getattr(self, k, None):
+                setattr(self, k, v)
+        self.save()
+
     @property
     def genre_list(self):
         return [g.strip() for g in self.genres.split(",") if g.strip()]
@@ -143,6 +157,28 @@ class Screening(models.Model):
     @property
     def seats_taken(self):
         return self.reservations.aggregate(s=models.Sum("seats"))["s"] or 0
+
+    @classmethod
+    def next_up(cls):
+        """The night the site is pointing people at: featured first, then the soonest."""
+        return (cls.objects.filter(status=cls.Status.UPCOMING, starts_at__gte=timezone.now() - timezone.timedelta(hours=4))
+                .order_by("-is_featured", "starts_at").select_related("film").first())
+
+    def mark_screened(self):
+        """Close the night: status done, and a diary entry plus a 'watched' mark for everyone
+        marked attended. Safe to run twice. Returns how many diary entries were written."""
+        made = 0
+        with transaction.atomic():
+            self.status = self.Status.DONE
+            self.save()
+            for r in self.reservations.filter(attended=True).select_related("user"):
+                _, created = LogEntry.objects.get_or_create(
+                    user=r.user, film=self.film, screening=self,
+                    defaults={"watched_on": timezone.localtime(self.starts_at).date(), "watched_with": "Backyard Movies"},
+                )
+                Shelf.objects.update_or_create(user=r.user, film=self.film, defaults={"watched": True, "watchlist": False})
+                made += created
+        return made
 
     @property
     def seats_left(self):

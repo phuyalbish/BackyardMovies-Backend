@@ -247,3 +247,110 @@ class VoteSerializer(serializers.ModelSerializer):
     class Meta:
         model = Vote
         fields = ["film", "created_at"]
+
+
+# ---------- booth (staff-only CMS at /api/booth/) ----------
+
+def film_poster(request, f):
+    return media_url(request, f.poster) or f.poster_url or None
+
+
+class BoothFilmRefSerializer(serializers.ModelSerializer):
+    """A film as it appears inside screenings and comments."""
+
+    poster = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Film
+        fields = ["id", "slug", "title", "year", "director", "poster"]
+
+    def get_poster(self, f):
+        return film_poster(self.context.get("request"), f)
+
+
+class BoothFilmSerializer(serializers.ModelSerializer):
+    poster_src = serializers.SerializerMethodField()
+    suggested_by = MemberSerializer(read_only=True)
+    votes = serializers.IntegerField(source="vote_count", read_only=True, default=0)
+    screenings_count = serializers.IntegerField(read_only=True, default=0)
+
+    class Meta:
+        model = Film
+        fields = ["id", "slug", "title", "original_title", "year", "director", "country", "language", "runtime",
+                  "genres", "tagline", "synopsis", "palette", "trailer_url", "poster", "poster_url", "poster_src",
+                  "on_ballot", "status", "tmdb_id", "suggested_by", "pitch", "created_at", "votes",
+                  "screenings_count"]
+        read_only_fields = ["slug", "tmdb_id", "pitch", "created_at"]
+        extra_kwargs = {"poster": {"required": False, "allow_null": True}}
+
+    def get_poster_src(self, f):
+        return film_poster(self.context.get("request"), f)
+
+    def validate(self, data):
+        if data.get("on_ballot"):
+            data["status"] = Film.Status.VAULT  # only vault films can be voted for
+        return data
+
+
+class BoothReservationSerializer(serializers.ModelSerializer):
+    user = MemberSerializer(read_only=True)
+
+    class Meta:
+        model = Reservation
+        fields = ["id", "code", "user", "seats", "note", "attended", "created_at"]
+        read_only_fields = ["note", "created_at"]
+
+
+class BoothScreeningSerializer(serializers.ModelSerializer):
+    film = BoothFilmRefSerializer(read_only=True)
+    film_id = serializers.PrimaryKeyRelatedField(queryset=Film.objects.all(), source="film", write_only=True)
+    seats_taken = serializers.SerializerMethodField()
+    seats_left = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Screening
+        fields = ["id", "film", "film_id", "title", "starts_at", "ends_at", "venue", "address", "capacity", "entry",
+                  "host_note", "is_featured", "status", "seats_taken", "seats_left"]
+
+    def get_seats_taken(self, s):
+        taken = getattr(s, "taken", None)
+        return s.seats_taken if taken is None else taken
+
+    def get_seats_left(self, s):
+        return max(s.capacity - self.get_seats_taken(s), 0)
+
+
+class BoothCommentSerializer(serializers.ModelSerializer):
+    user = MemberSerializer(read_only=True)
+    target = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Comment
+        fields = ["id", "user", "body", "parent", "is_hidden", "created_at", "target"]
+        read_only_fields = ["body", "parent", "created_at"]
+
+    def get_target(self, c):
+        if c.film_id:
+            return {"kind": "film", "id": c.film_id, "label": c.film.title, "key": c.film.slug}
+        if c.screening_id:
+            return {"kind": "screening", "id": c.screening_id, "label": c.screening.film.title, "key": c.screening_id}
+        return None
+
+
+class BoothMemberSerializer(serializers.ModelSerializer):
+    display_name = serializers.SerializerMethodField()
+    avatar = serializers.SerializerMethodField()
+    reservation_count = serializers.IntegerField(read_only=True, default=0)
+    comment_count = serializers.IntegerField(read_only=True, default=0)
+
+    class Meta:
+        model = User
+        fields = ["id", "username", "email", "display_name", "avatar", "is_staff", "is_superuser", "date_joined",
+                  "last_login", "reservation_count", "comment_count"]
+        read_only_fields = ["username", "email", "is_superuser", "date_joined", "last_login"]
+
+    def get_display_name(self, u):
+        return MemberSerializer.get_display_name(self, u)
+
+    def get_avatar(self, u):
+        return MemberSerializer.get_avatar(self, u)

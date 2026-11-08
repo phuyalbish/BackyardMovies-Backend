@@ -1,10 +1,9 @@
 from django.contrib import admin, messages
 from django.db.models import Count, Sum
-from django.utils import timezone
 from django.utils.html import format_html
 from django.utils.safestring import mark_safe
 
-from .models import Comment, Film, LogEntry, Profile, Reservation, Screening, Shelf, SiteSettings, Vote
+from .models import Comment, Film, Reservation, Screening, SiteSettings
 
 admin.site.site_header = "Backyard Movies · Projection Booth"
 admin.site.site_title = "Projection Booth"
@@ -127,17 +126,7 @@ class ScreeningAdmin(admin.ModelAdmin):
 
     @admin.action(description="Mark as screened (logs it for everyone marked attended)")
     def mark_done(self, request, qs):
-        made = 0
-        for s in qs:
-            s.status = Screening.Status.DONE
-            s.save()
-            for r in s.reservations.filter(attended=True):
-                _, created = LogEntry.objects.get_or_create(
-                    user=r.user, film=s.film, screening=s,
-                    defaults={"watched_on": timezone.localtime(s.starts_at).date(), "watched_with": "Backyard Movies"},
-                )
-                Shelf.objects.update_or_create(user=r.user, film=s.film, defaults={"watched": True, "watchlist": False})
-                made += created
+        made = sum(s.mark_screened() for s in qs)
         self.message_user(request, f"Done. {made} logbook entries written.", messages.SUCCESS)
 
     @admin.action(description="Cancel screening")
@@ -172,22 +161,3 @@ class CommentAdmin(admin.ModelAdmin):
     @admin.action(description="Hide selected comments")
     def hide(self, request, qs):
         qs.update(is_hidden=True)
-
-
-@admin.register(LogEntry)
-class LogEntryAdmin(admin.ModelAdmin):
-    list_display = ("user", "film", "rating", "watched_on", "screening")
-    list_filter = ("rating",)
-    search_fields = ("user__username", "film__title")
-
-
-@admin.register(Profile)
-class ProfileAdmin(admin.ModelAdmin):
-    list_display = ("user", "display_name", "city", "favourite_film")
-    search_fields = ("user__username", "display_name")
-
-
-@admin.register(Vote)
-class VoteAdmin(admin.ModelAdmin):
-    list_display = ("film", "user", "created_at")
-    list_filter = ("film",)

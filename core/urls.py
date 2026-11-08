@@ -1,7 +1,8 @@
-from django.urls import path
+from django.urls import include, path
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
 from . import views as v
+from .booth import dashboard, router as booth_router, settings_view
 
 urlpatterns = [
     path("site/", v.site),
@@ -30,4 +31,11 @@ urlpatterns = [
     path("log/", v.log_list),
     path("log/<int:pk>/", v.log_delete),
     path("members/<str:username>/", v.member),
+]
+
+# Staff-only CMS for the React Projection Booth.
+urlpatterns += [
+    path("booth/dashboard/", dashboard),
+    path("booth/settings/", settings_view),
+    path("booth/", include(booth_router.urls)),
 ]

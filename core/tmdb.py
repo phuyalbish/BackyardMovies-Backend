@@ -93,3 +93,28 @@ def details(tmdb_id):
         "synopsis": m.get("overview") or "",
         "poster_url": poster(m.get("poster_path")) or "",
     }
+
+
+def match(titles, year=None):
+    """Best TMDB id for a film: same original release year, exact title first. None if nothing fits."""
+    titles = [t for t in titles if t]
+
+    def search(q, **kw):
+        return get("/search/movie", query=q, **kw).get("results", [])
+
+    def year_of(r):
+        d = r.get("release_date") or ""
+        return int(d[:4]) if d[:4].isdigit() else None
+
+    res = []
+    for t in titles:
+        res = search(t, primary_release_year=year or "")
+        if res:
+            break
+    if not res:  # release year differs by one in some databases
+        res = [r for t in titles for r in search(t) if year and year_of(r) and abs(year_of(r) - year) <= 1]
+    if not res:
+        return None
+    names = {t.casefold() for t in titles}
+    exact = [r for r in res if {(r.get("title") or "").casefold(), (r.get("original_title") or "").casefold()} & names]
+    return (exact or res)[0]["id"]
